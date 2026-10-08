@@ -3,8 +3,9 @@ import React from "react";
 import {
   AbsoluteFill,
   Audio,
+  Easing,
+  Img,
   interpolate,
-  OffthreadVideo,
   Sequence,
   spring,
   staticFile,
@@ -22,16 +23,18 @@ const { fontFamily: montserrat } = loadMontserrat("normal", {
 
 // ================= TEXTOS (cámbialos aquí) =================
 const TEXTOS = {
-  alerta1: "ATENCIÓN",
-  alerta2: "ASPIRANTES A MOSSOS",
+  alerta1: "ATENCIÓ",
+  alerta2: "ASPIRANTS A MOSSOS",
   marca1: "OPOS",
   marca2: "365",
   firma: "by GADIVI",
-  claim: "Tu plaza empieza hoy",
-  titulo: "TODO EN UNA APP",
-  ventajas: ["Temario completo", "Psicotécnicos", "Tests tipo examen", "Tutor con IA"],
-  cta: "YA DISPONIBLE",
+  claim: "La teva plaça comença avui",
+  titulo: "TOT EN UNA APP",
+  ventajas: ["Temari complet", "Psicotècnics", "Tests tipus examen", "Tutor amb IA"],
+  cta: "JA DISPONIBLE",
   plataformas: "iOS · Android · Web",
+  avis: "App no oficial · Sense vinculació amb la Policia de la Generalitat",
+  credits: "Fotos: B. Adamson, Curimedia (CC BY 2.0) · Francesc 2000 (domini públic) · Wikimedia Commons",
 };
 // ===========================================================
 
@@ -74,32 +77,94 @@ const Luces: React.FC = () => {
   );
 };
 
-// ---------------- Vídeo real de fondo ----------------
-const Clip: React.FC<{
-  src: string;
-  duracion: number;
-  oscuro?: number;
-  desenfoque?: number;
-  velocidad?: number;
-  fundido?: boolean;
-}> = ({ src, duracion, oscuro = 0, desenfoque = 0, velocidad = 1, fundido = true }) => {
+// ---------------- Foto real con movimiento de cámara y luces ----------------
+type Encuadre = [number, number, number]; // [centroX, centroY, zoom] (relativo a la foto)
+type Luz = [number, number, number]; // [x, y, fase] (relativo a la foto)
+
+const LuzGiratoria: React.FC<{ x: number; y: number; fase: number; tam: number }> = ({ x, y, fase, tam }) => {
   const frame = useCurrentFrame();
-  const zoom = interpolate(frame, [0, duracion], [1.06, 1.16], CLAMP);
-  const opacidad = fundido ? interpolate(frame, [0, 8], [0, 1], CLAMP) : 1;
+  const f = (frame + fase) % 12;
+  const on = f < 2 || (f >= 4 && f < 6) ? 1 : 0.12;
   return (
-    <AbsoluteFill style={{ opacity: opacidad, overflow: "hidden" }}>
-      <OffthreadVideo
-        src={staticFile(`clips/${src}.mp4`)}
-        muted
-        playbackRate={velocidad}
+    <div
+      style={{
+        position: "absolute",
+        left: `${x * 100}%`,
+        top: `${y * 100}%`,
+        width: 0,
+        height: 0,
+        mixBlendMode: "screen",
+      }}
+    >
+      <div
         style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          transform: `scale(${zoom})`,
-          filter: `brightness(${1 - oscuro}) contrast(1.15) saturate(1.25) blur(${desenfoque}px)`,
+          position: "absolute",
+          left: -tam,
+          top: -tam,
+          width: tam * 2,
+          height: tam * 2,
+          borderRadius: "50%",
+          opacity: on,
+          background: `radial-gradient(circle, #ffffff 0%, #8fb4ff 8%, ${AZUL}cc 22%, ${AZUL}00 70%)`,
         }}
       />
+      <div
+        style={{
+          position: "absolute",
+          left: -tam * 3,
+          top: -tam * 0.12,
+          width: tam * 6,
+          height: tam * 0.24,
+          borderRadius: "50%",
+          opacity: on * 0.9,
+          background: `radial-gradient(ellipse, #ffffff 0%, ${AZUL}aa 30%, ${AZUL}00 70%)`,
+        }}
+      />
+    </div>
+  );
+};
+
+const Foto: React.FC<{
+  src: string;
+  ancho: number;
+  alto: number;
+  duracion: number;
+  desde: Encuadre;
+  hasta: Encuadre;
+  luces?: Luz[];
+  tamLuz?: number;
+  oscuro?: number;
+  desenfoque?: number;
+  fundido?: boolean;
+}> = ({ src, ancho, alto, duracion, desde, hasta, luces = [], tamLuz = 0.05, oscuro = 0, desenfoque = 0, fundido = true }) => {
+  const frame = useCurrentFrame();
+  const t = interpolate(frame, [0, duracion], [0, 1], { ...CLAMP, easing: Easing.inOut(Easing.cubic) });
+  const cx = desde[0] + (hasta[0] - desde[0]) * t;
+  const cy = desde[1] + (hasta[1] - desde[1]) * t;
+  const zoom = desde[2] + (hasta[2] - desde[2]) * t;
+  const escala = (1920 * zoom) / alto;
+  const w = ancho * escala;
+  const h = alto * escala;
+  const left = Math.min(0, Math.max(1080 - w, 540 - cx * w));
+  const top = Math.min(0, Math.max(1920 - h, 960 - cy * h));
+  const opacidad = fundido ? interpolate(frame, [0, 8], [0, 1], CLAMP) : 1;
+  return (
+    <AbsoluteFill style={{ opacity: opacidad, overflow: "hidden", backgroundColor: "#03050a" }}>
+      <div style={{ position: "absolute", left, top, width: w, height: h, filter: `blur(${desenfoque}px)` }}>
+        <Img
+          src={staticFile(`fotos/${src}`)}
+          style={{
+            width: "100%",
+            height: "100%",
+            filter: `brightness(${0.8 - oscuro}) contrast(1.2) saturate(1.15)`,
+          }}
+        />
+        {/* Tono nocturno */}
+        <div style={{ position: "absolute", inset: 0, background: "#0a1a4a", mixBlendMode: "multiply", opacity: 0.45 }} />
+        {luces.map(([x, y, fase], i) => (
+          <LuzGiratoria key={i} x={x} y={y} fase={fase} tam={tamLuz * w} />
+        ))}
+      </div>
     </AbsoluteFill>
   );
 };
@@ -369,6 +434,22 @@ const Final: React.FC = () => {
       >
         {TEXTOS.firma}
       </div>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 90,
+          left: 60,
+          right: 60,
+          textAlign: "center",
+          fontFamily: montserrat,
+          fontWeight: 600,
+          color: "rgba(220,228,245,0.75)",
+          opacity: plataformas,
+        }}
+      >
+        <div style={{ fontSize: 26 }}>{TEXTOS.avis}</div>
+        <div style={{ fontSize: 19, marginTop: 10, color: "rgba(220,228,245,0.55)" }}>{TEXTOS.credits}</div>
+      </div>
     </AbsoluteFill>
   );
 };
@@ -397,21 +478,44 @@ export const MyComposition: React.FC = () => {
     <AbsoluteFill style={{ backgroundColor: "#03050a", overflow: "hidden" }}>
       <Audio src={staticFile("sirena.wav")} />
       <AbsoluteFill style={{ transform: `translate(${tx}px, ${ty}px) scale(1.04)` }}>
-        {/* Planos reales de fondo */}
+        {/* Fotos reales de vehículos de Mossos */}
         <Sequence from={0} durationInFrames={68}>
-          <Clip src="intro" duracion={68} oscuro={0.35} fundido={false} />
+          <Foto
+            src="brimo-nit.jpg" ancho={1332} alto={875} duracion={68}
+            desde={[0.22, 0.5, 1.02]} hasta={[0.32, 0.5, 1.12]}
+            luces={[[0.095, 0.32, 0], [0.18, 0.53, 3], [0.1, 0.48, 6]]} tamLuz={0.04}
+            oscuro={0.15} fundido={false}
+          />
         </Sequence>
         <Sequence from={60} durationInFrames={98}>
-          <Clip src="convoy" duracion={98} velocidad={1.2} />
+          <Foto
+            src="arona.jpg" ancho={4063} alto={2407} duracion={98}
+            desde={[0.3, 0.42, 1.0]} hasta={[0.74, 0.52, 1.12]}
+            luces={[[0.31, 0.178, 0], [0.4, 0.172, 3], [0.5, 0.178, 6]]} tamLuz={0.035}
+          />
         </Sequence>
         <Sequence from={150} durationInFrames={98}>
-          <Clip src="logo" duracion={98} oscuro={0.4} desenfoque={2} />
+          <Foto
+            src="qashqai.jpg" ancho={1200} alto={900} duracion={98}
+            desde={[0.36, 0.45, 1.0]} hasta={[0.56, 0.45, 1.08]}
+            luces={[[0.32, 0.178, 0], [0.41, 0.17, 3], [0.5, 0.178, 6]]} tamLuz={0.035}
+            oscuro={0.3} desenfoque={2}
+          />
         </Sequence>
         <Sequence from={240} durationInFrames={138}>
-          <Clip src="suv" duracion={138} oscuro={0.5} desenfoque={8} />
+          <Foto
+            src="transit.jpg" ancho={1229} alto={649} duracion={138}
+            desde={[0.4, 0.5, 1.0]} hasta={[0.55, 0.5, 1.1]}
+            luces={[[0.35, 0.15, 0], [0.44, 0.15, 4]]} tamLuz={0.05}
+            oscuro={0.4} desenfoque={7}
+          />
         </Sequence>
         <Sequence from={370}>
-          <Clip src="final" duracion={80} oscuro={0.45} desenfoque={10} />
+          <Foto
+            src="arona.jpg" ancho={4063} alto={2407} duracion={80}
+            desde={[0.78, 0.62, 1.55]} hasta={[0.8, 0.62, 1.7]}
+            oscuro={0.35} desenfoque={6}
+          />
         </Sequence>
 
         <Luces />
