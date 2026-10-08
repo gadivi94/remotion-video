@@ -29,13 +29,23 @@ jobs:
                   out += [m["title"] for m in r["query"]["categorymembers"]]
                   if "continue" not in r: return out
                   cont = r["continue"]
-          cats, seen, files = ["Category:Vehicles of Mossos d'Esquadra"], set(), []
-          while cats and len(seen) < 40:
-              c = cats.pop(0)
-              if c in seen: continue
+          def search(q):
+              r = requests.get(API, headers=H, params={"action": "query", "list": "search", "srsearch": q, "srnamespace": 6, "srlimit": 100, "format": "json"}).json()
+              return [m["title"] for m in r.get("query", {}).get("search", [])]
+          files = []
+          for q in ["Mossos d'Esquadra car", "Mossos d'Esquadra vehicle", "Mossos d'Esquadra patrol", "cotxe Mossos d'Esquadra",
+                    "furgoneta Mossos", "Mossos d'Esquadra police car Barcelona", "Mossos d'Esquadra Skoda", "Mossos d'Esquadra night"]:
+              files += search(q + " filetype:bitmap")
+          seen = set()
+          cats = [("Category:Mossos d'Esquadra", 0)]
+          while cats:
+              c, depth = cats.pop(0)
+              if c in seen or depth > 2: continue
               seen.add(c)
-              files += members(c, "file")
-              cats += members(c, "subcat")
+              if any(w in c.lower() for w in ["vehic", "car", "cotx", "van", "patrol", "transport"]) or depth == 0:
+                  files += members(c, "file")
+              cats += [(x, depth + 1) for x in members(c, "subcat")]
+          print("categorías:", sorted(seen))
           files = list(dict.fromkeys(files))
           print(len(seen), "categorías,", len(files), "archivos")
           info = []
@@ -48,9 +58,10 @@ jobs:
                                "url": ii.get("url"), "thumb": ii.get("thumburl"),
                                "license": md.get("LicenseShortName", {}).get("value"),
                                "artist": md.get("Artist", {}).get("value", "")[:200]})
-          info.sort(key=lambda x: x["title"])
+          orden = {t: i for i, t in enumerate(files)}
+          info.sort(key=lambda x: orden.get(x["title"], 9999))
           json.dump(info, open("sheets/lista.json", "w"), ensure_ascii=False, indent=1)
-          imgs = [x for x in info if x["thumb"] and (x["mime"] or "").startswith(("image/jpeg", "image/png"))][:120]
+          imgs = [x for x in info if x["thumb"] and (x["mime"] or "").startswith(("image/jpeg", "image/png"))][:144]
           cols, tw, th = 6, 400, 300
           for page in range(0, len(imgs), 48):
               chunk = imgs[page:page+48]
