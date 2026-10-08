@@ -1,4 +1,4 @@
-name: Buscar imágenes de Mossos (Wikimedia Commons)
+name: Descargar fotos de Mossos (Wikimedia Commons)
 
 on:
   push:
@@ -11,99 +11,27 @@ permissions:
   contents: write
 
 jobs:
-  buscar:
+  descargar:
     runs-on: ubuntu-latest
     steps:
-      - name: Consultar Commons y crear hoja de contactos
+      - uses: actions/checkout@v4
+      - name: Descargar originales
         run: |
-          pip install -q pillow requests
-          cat > buscar.py <<'EOF'
-          import requests, json, io, textwrap
-          from PIL import Image, ImageDraw
-          API = "https://commons.wikimedia.org/w/api.php"
-          import time
-          H = {"User-Agent": "opos365-video/1.0 (https://github.com/gadivi94/remotion-video)"}
-          def get(params):
-              for intento in range(5):
-                  r = requests.get(API, headers=H, params=params, timeout=60)
-                  if r.status_code == 200:
-                      try:
-                          j = r.json()
-                          if "error" not in j: return j
-                          print("API error", j["error"])
-                      except Exception:
-                          print("no JSON", r.text[:200])
-                  else:
-                      print("HTTP", r.status_code, r.text[:200])
-                  time.sleep(3 * (intento + 1))
-              return {}
-          def members(cat, t):
-              out, cont = [], {}
-              while True:
-                  r = requests.get(API, headers=H, params={"action": "query", "list": "categorymembers", "cmtitle": cat, "cmtype": t, "cmlimit": 500, "format": "json", **cont}).json()
-                  out += [m["title"] for m in r["query"]["categorymembers"]]
-                  if "continue" not in r: return out
-                  cont = r["continue"]
-          def search(q):
-              r = get({"action": "query", "list": "search", "srsearch": q, "srnamespace": 6, "srlimit": 100, "format": "json"})
-              return [m["title"] for m in r.get("query", {}).get("search", [])]
-          files = []
-          for q in ["Mossos d'Esquadra car", "Mossos d'Esquadra vehicle", "Mossos d'Esquadra patrol", "cotxe Mossos d'Esquadra",
-                    "furgoneta Mossos", "Mossos d'Esquadra police car Barcelona", "Mossos d'Esquadra Skoda", "Mossos d'Esquadra night"]:
-              files += search(q + " filetype:bitmap")
-          seen = set()
-          cats = [("Category:Mossos d'Esquadra", 0)]
-          while cats:
-              c, depth = cats.pop(0)
-              if c in seen or depth > 2: continue
-              seen.add(c)
-              if any(w in c.lower() for w in ["vehic", "car", "cotx", "van", "patrol", "transport"]) or depth == 0:
-                  files += members(c, "file")
-              cats += [(x, depth + 1) for x in members(c, "subcat")]
-          print("categorías:", sorted(seen))
-          files = list(dict.fromkeys(files))
-          print(len(seen), "categorías,", len(files), "archivos")
-          info = []
-          for i in range(0, len(files), 40):
-              r = get({"action": "query", "titles": "|".join(files[i:i+40]), "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 400, "format": "json"})
-              for p in r.get("query", {}).get("pages", {}).values():
-                  ii = p.get("imageinfo", [{}])[0]
-                  md = ii.get("extmetadata", {})
-                  info.append({"title": p["title"], "w": ii.get("width"), "h": ii.get("height"), "mime": ii.get("mime"),
-                               "url": ii.get("url"), "thumb": ii.get("thumburl"),
-                               "license": md.get("LicenseShortName", {}).get("value"),
-                               "artist": md.get("Artist", {}).get("value", "")[:200]})
-          orden = {t: i for i, t in enumerate(files)}
-          info.sort(key=lambda x: orden.get(x["title"], 9999))
-          json.dump(info, open("sheets/lista.json", "w"), ensure_ascii=False, indent=1)
-          imgs = [x for x in info if x["thumb"] and (x["mime"] or "").startswith(("image/jpeg", "image/png"))][:144]
-          cols, tw, th = 6, 400, 300
-          for page in range(0, len(imgs), 48):
-              chunk = imgs[page:page+48]
-              rows = (len(chunk) + cols - 1) // cols
-              sheet = Image.new("RGB", (cols * tw, rows * th), "black")
-              d = ImageDraw.Draw(sheet)
-              for k, x in enumerate(chunk):
-                  try:
-                      im = Image.open(io.BytesIO(requests.get(x["thumb"], headers=H, timeout=30).content)).convert("RGB")
-                      im.thumbnail((tw, th - 40))
-                      ox, oy = (k % cols) * tw, (k // cols) * th
-                      sheet.paste(im, (ox, oy))
-                      d.rectangle([ox, oy + th - 40, ox + tw, oy + th], fill="black")
-                      d.text((ox + 4, oy + th - 38), f"#{page+k} {x['license']} {x['w']}x{x['h']}", fill="yellow")
-                      d.text((ox + 4, oy + th - 20), x["title"][5:60], fill="white")
-                  except Exception as e:
-                      print("fallo", x["title"], e)
-              sheet.save(f"sheets/mossos_{page//48}.jpg", quality=85)
-              print("hoja", page // 48)
-          json.dump(imgs, open("sheets/indice.json", "w"), ensure_ascii=False, indent=1)
-          EOF
-          mkdir -p sheets && (python3 buscar.py 2>&1 | tee sheets/log.txt) || true
-
-      - name: Publicar
-        env:
-          GH_TOKEN: ${{ github.token }}
+          UA="opos365-video/1.0 (https://github.com/gadivi94/remotion-video)"
+          D=opos365-video/public/fotos
+          mkdir -p $D
+          get() { curl -fsSL -A "$UA" -o "$D/$1" "$2"; sleep 2; }
+          get arona.jpg          "https://upload.wikimedia.org/wikipedia/commons/b/b4/SEAT_Arona_-_Mossos_d%27Esquadra.jpg"
+          get brimo-nit.jpg      "https://upload.wikimedia.org/wikipedia/commons/3/3e/BRIMO_furgoneta_nit.jpg"
+          get transit.jpg        "https://upload.wikimedia.org/wikipedia/commons/b/b8/Unitat_de_Transit_cotxe_patrulla.jpg"
+          get brimo-rambla.jpg   "https://upload.wikimedia.org/wikipedia/commons/e/e7/Furgoneta_BRIMO_a_La_Rambla.jpg"
+          get qashqai.jpg        "https://upload.wikimedia.org/wikipedia/commons/3/3d/Nissan_Qashqai_Mossos_d%C2%B4Esquadra._Barcelona_%289299533658%29.jpg"
+          get furgoneta-jutjats.jpg "https://upload.wikimedia.org/wikipedia/commons/2/26/Furgoneta_transport_presoners_jutjats.jpg"
+          ls -la $D
+      - name: Guardar en el repositorio
         run: |
-          gh release delete mossos-previews --yes --cleanup-tag --repo ${{ github.repository }} || true
-          gh release create mossos-previews sheets/* --repo ${{ github.repository }} \
-            --target "${{ github.sha }}" --title "Previsualización Mossos" --notes "Temporal" --prerelease
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add opos365-video/public/fotos
+          git commit -m "Fotos de vehículos de Mossos (Wikimedia Commons, CC BY 2.0 / dominio público)" || exit 0
+          git push
