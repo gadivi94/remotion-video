@@ -50,6 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release delete clip-previews --yes --cleanup-tag || true
           gh release delete video-latest --yes --cleanup-tag || true
           gh release create video-latest out/opos365.mp4 \
             --target "${{ github.sha }}" \
