@@ -1,0 +1,46 @@
+name: Previsualizar clips de stock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/preview-clips.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar clips y crear miniaturas
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          mkdir -p clips sheets
+          for id in 4290 49328 17396 47491 17376 14004 31376 49329; do
+            ok=""
+            for q in 1080 720 360; do
+              if curl -fsSL -o clips/$id.mp4 "https://assets.mixkit.co/videos/$id/$id-$q.mp4"; then ok=$q; break; fi
+            done
+            [ -z "$ok" ] && { echo "$id: no disponible"; continue; }
+            info=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height:format=duration -of csv=p=0:s=x clips/$id.mp4 | tr '\n' ' ')
+            echo "$id ($ok): $info" | tee -a sheets/info.txt
+            dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 clips/$id.mp4)
+            for k in 1 2 3 4; do
+              t=$(python3 -c "print($dur*$k/5)")
+              ffmpeg -v error -y -ss $t -i clips/$id.mp4 -frames:v 1 -vf "scale=480:270:force_original_aspect_ratio=decrease,pad=480:270:(ow-iw)/2:(oh-ih)/2" sheets/${id}_$k.png
+            done
+            ffmpeg -v error -y -i sheets/${id}_1.png -i sheets/${id}_2.png -i sheets/${id}_3.png -i sheets/${id}_4.png \
+              -filter_complex "hstack=4,drawbox=x=0:y=0:w=200:h=50:color=black@0.7:t=fill,drawtext=text='$id':x=10:y=8:fontsize=36:fontcolor=white" sheets/row_$id.png
+          done
+          ffmpeg -v error -y $(for f in sheets/row_*.png; do echo -n "-i $f "; done) -filter_complex "vstack=inputs=$(ls sheets/row_*.png | wc -l)" sheets/contact.png
+
+      - name: Publicar previsualización
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete clip-previews --yes --cleanup-tag --repo ${{ github.repository }} || true
+          gh release create clip-previews sheets/contact.png sheets/info.txt \
+            --repo ${{ github.repository }} --target "${{ github.sha }}" \
+            --title "Previsualización de clips" --notes "Temporal" --prerelease
