@@ -32,6 +32,11 @@ jobs:
       - name: Instalar dependencias
         run: npm install
 
+      - name: Descargar y recortar clips reales
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          bash scripts/preparar-clips.sh
+
       - name: Renderizar MP4
         run: npx remotion render Opos365Lanzamiento out/opos365.mp4
 
