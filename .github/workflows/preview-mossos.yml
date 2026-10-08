@@ -21,7 +21,22 @@ jobs:
           import requests, json, io, textwrap
           from PIL import Image, ImageDraw
           API = "https://commons.wikimedia.org/w/api.php"
-          H = {"User-Agent": "opos365-video/1.0 (gadivi94 GitHub Actions)"}
+          import time
+          H = {"User-Agent": "opos365-video/1.0 (https://github.com/gadivi94/remotion-video)"}
+          def get(params):
+              for intento in range(5):
+                  r = requests.get(API, headers=H, params=params, timeout=60)
+                  if r.status_code == 200:
+                      try:
+                          j = r.json()
+                          if "error" not in j: return j
+                          print("API error", j["error"])
+                      except Exception:
+                          print("no JSON", r.text[:200])
+                  else:
+                      print("HTTP", r.status_code, r.text[:200])
+                  time.sleep(3 * (intento + 1))
+              return {}
           def members(cat, t):
               out, cont = [], {}
               while True:
@@ -30,7 +45,7 @@ jobs:
                   if "continue" not in r: return out
                   cont = r["continue"]
           def search(q):
-              r = requests.get(API, headers=H, params={"action": "query", "list": "search", "srsearch": q, "srnamespace": 6, "srlimit": 100, "format": "json"}).json()
+              r = get({"action": "query", "list": "search", "srsearch": q, "srnamespace": 6, "srlimit": 100, "format": "json"})
               return [m["title"] for m in r.get("query", {}).get("search", [])]
           files = []
           for q in ["Mossos d'Esquadra car", "Mossos d'Esquadra vehicle", "Mossos d'Esquadra patrol", "cotxe Mossos d'Esquadra",
@@ -50,8 +65,8 @@ jobs:
           print(len(seen), "categorías,", len(files), "archivos")
           info = []
           for i in range(0, len(files), 40):
-              r = requests.get(API, headers=H, params={"action": "query", "titles": "|".join(files[i:i+40]), "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 400, "format": "json"}).json()
-              for p in r["query"]["pages"].values():
+              r = get({"action": "query", "titles": "|".join(files[i:i+40]), "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 400, "format": "json"})
+              for p in r.get("query", {}).get("pages", {}).values():
                   ii = p.get("imageinfo", [{}])[0]
                   md = ii.get("extmetadata", {})
                   info.append({"title": p["title"], "w": ii.get("width"), "h": ii.get("height"), "mime": ii.get("mime"),
@@ -83,7 +98,7 @@ jobs:
               print("hoja", page // 48)
           json.dump(imgs, open("sheets/indice.json", "w"), ensure_ascii=False, indent=1)
           EOF
-          mkdir -p sheets && python3 buscar.py
+          mkdir -p sheets && (python3 buscar.py 2>&1 | tee sheets/log.txt) || true
 
       - name: Publicar
         env:
