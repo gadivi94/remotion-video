@@ -1,0 +1,83 @@
+name: Buscar imágenes de Mossos (Wikimedia Commons)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/preview-mossos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  buscar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar Commons y crear hoja de contactos
+        run: |
+          pip install -q pillow requests
+          cat > buscar.py <<'EOF'
+          import requests, json, io, textwrap
+          from PIL import Image, ImageDraw
+          API = "https://commons.wikimedia.org/w/api.php"
+          H = {"User-Agent": "opos365-video/1.0 (gadivi94 GitHub Actions)"}
+          def members(cat, t):
+              out, cont = [], {}
+              while True:
+                  r = requests.get(API, headers=H, params={"action": "query", "list": "categorymembers", "cmtitle": cat, "cmtype": t, "cmlimit": 500, "format": "json", **cont}).json()
+                  out += [m["title"] for m in r["query"]["categorymembers"]]
+                  if "continue" not in r: return out
+                  cont = r["continue"]
+          cats, seen, files = ["Category:Vehicles of Mossos d'Esquadra"], set(), []
+          while cats and len(seen) < 40:
+              c = cats.pop(0)
+              if c in seen: continue
+              seen.add(c)
+              files += members(c, "file")
+              cats += members(c, "subcat")
+          files = list(dict.fromkeys(files))
+          print(len(seen), "categorías,", len(files), "archivos")
+          info = []
+          for i in range(0, len(files), 40):
+              r = requests.get(API, headers=H, params={"action": "query", "titles": "|".join(files[i:i+40]), "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 400, "format": "json"}).json()
+              for p in r["query"]["pages"].values():
+                  ii = p.get("imageinfo", [{}])[0]
+                  md = ii.get("extmetadata", {})
+                  info.append({"title": p["title"], "w": ii.get("width"), "h": ii.get("height"), "mime": ii.get("mime"),
+                               "url": ii.get("url"), "thumb": ii.get("thumburl"),
+                               "license": md.get("LicenseShortName", {}).get("value"),
+                               "artist": md.get("Artist", {}).get("value", "")[:200]})
+          info.sort(key=lambda x: x["title"])
+          json.dump(info, open("sheets/lista.json", "w"), ensure_ascii=False, indent=1)
+          imgs = [x for x in info if x["thumb"] and (x["mime"] or "").startswith(("image/jpeg", "image/png"))][:120]
+          cols, tw, th = 6, 400, 300
+          for page in range(0, len(imgs), 48):
+              chunk = imgs[page:page+48]
+              rows = (len(chunk) + cols - 1) // cols
+              sheet = Image.new("RGB", (cols * tw, rows * th), "black")
+              d = ImageDraw.Draw(sheet)
+              for k, x in enumerate(chunk):
+                  try:
+                      im = Image.open(io.BytesIO(requests.get(x["thumb"], headers=H, timeout=30).content)).convert("RGB")
+                      im.thumbnail((tw, th - 40))
+                      ox, oy = (k % cols) * tw, (k // cols) * th
+                      sheet.paste(im, (ox, oy))
+                      d.rectangle([ox, oy + th - 40, ox + tw, oy + th], fill="black")
+                      d.text((ox + 4, oy + th - 38), f"#{page+k} {x['license']} {x['w']}x{x['h']}", fill="yellow")
+                      d.text((ox + 4, oy + th - 20), x["title"][5:60], fill="white")
+                  except Exception as e:
+                      print("fallo", x["title"], e)
+              sheet.save(f"sheets/mossos_{page//48}.jpg", quality=85)
+              print("hoja", page // 48)
+          json.dump(imgs, open("sheets/indice.json", "w"), ensure_ascii=False, indent=1)
+          EOF
+          mkdir -p sheets && python3 buscar.py
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mossos-previews --yes --cleanup-tag --repo ${{ github.repository }} || true
+          gh release create mossos-previews sheets/* --repo ${{ github.repository }} \
+            --target "${{ github.sha }}" --title "Previsualización Mossos" --notes "Temporal" --prerelease
