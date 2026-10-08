@@ -473,7 +473,7 @@ const Final: React.FC = () => {
       <div
         style={{
           marginTop: 40,
-          padding: "30px 60px",
+          padding: "26px 48px",
           borderRadius: 30,
           border: `8px solid ${borde}`,
           boxShadow: `0 0 80px ${borde}, inset 0 0 40px ${borde}88`,
@@ -481,7 +481,7 @@ const Final: React.FC = () => {
           opacity: interpolate(frame, [0, 3], [0, 1], CLAMP),
         }}
       >
-        <div style={{ fontFamily: anton, fontSize: 170, color: "white", letterSpacing: 6, lineHeight: 1.1 }}>
+        <div style={{ fontFamily: anton, fontSize: 132, color: "white", letterSpacing: 5, lineHeight: 1.1, whiteSpace: "nowrap" }}>
           {TEXTOS.cta}
         </div>
       </div>
