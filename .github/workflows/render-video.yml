@@ -1,0 +1,52 @@
+name: Renderizar vídeo OPOS365
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "opos365-video/**"
+      - ".github/workflows/render-video.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render-video
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: opos365-video
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Renderizar MP4
+        run: npx remotion render Opos365Lanzamiento out/opos365.mp4
+
+      - name: Guardar como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: opos365-video
+          path: opos365-video/out/opos365.mp4
+
+      - name: Publicar en Releases (enlace directo al MP4)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete video-latest --yes --cleanup-tag || true
+          gh release create video-latest out/opos365.mp4 \
+            --target "${{ github.sha }}" \
+            --title "Vídeo de lanzamiento OPOS365" \
+            --notes "Render automático del commit ${{ github.sha }}"
